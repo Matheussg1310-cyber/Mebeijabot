@@ -9,7 +9,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 BOT_TOKEN    = os.environ.get("BOT_TOKEN", "SEU_TOKEN_DO_BOTFATHER")
 SYNCPAY_KEY  = os.environ.get("SYNCPAY_KEY", "SUA_API_KEY_SYNCPAY")
 CHANNEL_ID   = int(os.environ.get("CHANNEL_ID", "-1001234567890"))
-SYNCPAY_URL  = "https://api.syncpay.pro/v1/gateway/api"
+SYNCPAY_URL  = "https://api.syncpayments.com.br"
+
 
 PLANS = {
     "mensal": {"label": "📅 PLANO MENSAL — R$ 29,90", "price": 29.90, "days": 30},
