@@ -12,9 +12,9 @@ CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
 SYNCPAY_URL = "https://api.syncpayments.com.br"
 
 PLANS = {
-    "mensal": {"label": "📅 PLANO MENSAL — R$ 29,90", "price": 29.90, "days": 30},
-    "bimestral": {"label": "🔒 2 MESES — R$ 39,90", "price": 39.90, "days": 60},
-    "trimestral": {"label": "❤️ 3 MESES — R$ 49,90", "price": 49.90, "days": 90},
+    "mensal": {"label": "📅 PLANO MENSAL — R$ 19,90", "price": 19.90, "days": 30},
+    "bimestral": {"label": "🔒 2 MESES — R$ 29,90", "price": 29.90, "days": 60},
+    "trimestral": {"label": "❤️ 3 MESES — R$ 39,90", "price": 39.90, "days": 90},
 }
 
 pending = {}
