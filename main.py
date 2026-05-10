@@ -6,11 +6,10 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-BOT_TOKEN    = os.environ.get("BOT_TOKEN", "SEU_TOKEN_DO_BOTFATHER")
-SYNCPAY_KEY  = os.environ.get("SYNCPAY_KEY", "SUA_API_KEY_SYNCPAY")
-CHANNEL_ID   = int(os.environ.get("CHANNEL_ID", "-1001234567890"))
-SYNCPAY_URL  = "https://api.syncpayments.com.br"
-
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+SYNCPAY_KEY = os.environ.get("SYNCPAY_KEY", "")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
+SYNCPAY_URL = "https://api.syncpayments.com.br"
 
 PLANS = {
     "mensal": {"label": "📅 PLANO MENSAL — R$ 29,90", "price": 29.90, "days": 30},
@@ -20,19 +19,27 @@ PLANS = {
 
 pending = {}
 
+
 def _headers():
     encoded = base64.b64encode(SYNCPAY_KEY.encode()).decode()
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
+
 async def criar_cobranca(amount, descricao, ref):
     async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(f"{SYNCPAY_URL}/charge/", headers=_headers(), json={"amount": amount, "description": descricao, "externalreference": ref})
+        r = await c.post(
+            f"{SYNCPAY_URL}/charge/",
+            headers=_headers(),
+            json={"amount": amount, "description": descricao, "externalreference": ref},
+        )
         return r.json()
+
 
 async def verificar_pagamento(transaction_id):
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(f"{SYNCPAY_URL}/charge/{transaction_id}/", headers=_headers())
         return r.json()
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -41,6 +48,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(PLANS["trimestral"]["label"], callback_data="plan_trimestral")],
     ]
     await update.message.reply_text("💎 Escolha seu plano:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def selecionar_plano(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -61,10 +69,11 @@ async def selecionar_plano(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending[user_id] = {"tx_id": tx_id, "days": plan["days"], "nome": nome}
         btn = [[InlineKeyboardButton("✅ Clique para ver o status do pagamento", callback_data="verificar")]]
         await context.bot.send_message(chat_id=user_id, text="Para pagar via Pix Copia e Cola: toque no código abaixo para copiá-lo, abra seu app do banco, escolha 'Pix Copia e Cola' e cole o conteúdo.")
-        await context.bot.send_message(chat_id=user_id, text=f"`{pix_code}`", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=user_id, text=pix_code)
         await context.bot.send_message(chat_id=user_id, text="✅ Depois de efetuar o pagamento, toque no botão abaixo para verificar o status do seu pedido.", reply_markup=InlineKeyboardMarkup(btn))
     except Exception as e:
         await context.bot.send_message(chat_id=user_id, text=f"❌ Erro: {e}. Digite /start para recomeçar.")
+
 
 async def verificar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -74,4 +83,37 @@ async def verificar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not pay:
         await query.edit_message_text("❌ Nenhum pagamento encontrado. Use /start para recomeçar.")
         return
-    try​​​​​​​​​​​​​​​​
+    try:
+        data = await verificar_pagamento(pay["tx_id"])
+        status = data.get("status_transaction", "")
+        if status in ("PAID", "APPROVED", "COMPLETED", "paid", "approved"):
+            expire = datetime.now() + timedelta(days=pay["days"])
+            invite = await context.bot.create_chat_invite_link(chat_id=CHANNEL_ID, expire_date=expire, member_limit=1)
+            await context.bot.send_message(chat_id=user_id, text=f"Seu pedido foi pago com sucesso! {pay['nome']}")
+            await context.bot.send_message(chat_id=user_id, text="Aguarde, estamos preparando seu acesso...")
+            await asyncio.sleep(2)
+            await context.bot.send_message(chat_id=user_id, text="Aqui está o link de acesso para o canal VIP")
+            await context.bot.send_message(chat_id=user_id, text=invite.invite_link)
+            await context.bot.send_message(chat_id=user_id, text="Seu acesso foi liberado! Aproveite :)")
+            del pending[user_id]
+        else:
+            btn = [[InlineKeyboardButton("✅ Clique para ver o status do pagamento", callback_data="verificar")]]
+            await query.edit_message_text(
+                f"{pay['nome']}, não identificamos o pagamento. Verifique se o Pix foi realizado e tente novamente.",
+                reply_markup=InlineKeyboardMarkup(btn),
+            )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Erro ao verificar: {e}")
+
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(selecionar_plano, pattern="^plan_"))
+    app.add_handler(CallbackQueryHandler(verificar, pattern="^verificar$"))
+    print("Bot rodando!")
+    app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
