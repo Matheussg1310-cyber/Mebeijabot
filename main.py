@@ -1,5 +1,4 @@
 import os
-import base64
 import asyncio
 import httpx
 from datetime import datetime, timedelta
@@ -7,7 +6,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-SYNCPAY_KEY = os.environ.get("SYNCPAY_KEY", "")
+SYNCPAY_CLIENT_ID = os.environ.get("SYNCPAY_CLIENT_ID", "")
+SYNCPAY_CLIENT_SECRET = os.environ.get("SYNCPAY_CLIENT_SECRET", "")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
 SYNCPAY_URL = "https://api.syncpayments.com.br"
 
@@ -18,26 +18,51 @@ PLANS = {
 }
 
 pending = {}
+bearer_token = {"token": None, "expires_at": None}
 
 
-def _headers():
-    encoded = base64.b64encode(SYNCPAY_KEY.encode()).decode()
-    return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
-
-
-async def criar_cobranca(amount, descricao, ref):
+async def get_token():
+    now = datetime.now()
+    if bearer_token["token"] and bearer_token["expires_at"] and now < bearer_token["expires_at"]:
+        return bearer_token["token"]
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.post(
-            f"{SYNCPAY_URL}/charge/",
-            headers=_headers(),
-            json={"amount": amount, "description": descricao, "externalreference": ref},
+            f"{SYNCPAY_URL}/api/partner/v1/auth-token",
+            headers={"Content-Type": "application/json"},
+            json={"client_id": SYNCPAY_CLIENT_ID, "client_secret": SYNCPAY_CLIENT_SECRET},
+        )
+        data = r.json()
+        token = data.get("access_token")
+        bearer_token["token"] = token
+        bearer_token["expires_at"] = now + timedelta(minutes=55)
+        return token
+
+
+async def criar_cobranca(amount, descricao):
+    token = await get_token()
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post(
+            f"{SYNCPAY_URL}/api/partner/v1/cash-in",
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"amount": amount, "description": descricao},
         )
         return r.json()
 
 
-async def verificar_pagamento(transaction_id):
+async def verificar_pagamento(identifier):
+    token = await get_token()
     async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.get(f"{SYNCPAY_URL}/charge/{transaction_id}/", headers=_headers())
+        r = await c.get(
+            f"{SYNCPAY_URL}/api/partner/v1/cash-in/{identifier}",
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+        )
         return r.json()
 
 
@@ -57,16 +82,15 @@ async def selecionar_plano(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan = PLANS[plan_key]
     user_id = query.from_user.id
     nome = query.from_user.first_name
-    ref = f"{user_id}_{plan_key}_{int(datetime.now().timestamp())}"
     await query.edit_message_text("⏳ Aguarde, estamos processando seu pedido...")
     try:
-        charge = await criar_cobranca(plan["price"], f"VIP Picks - {plan_key}", ref)
-        pix_code = charge.get("paymentCode")
-        tx_id = charge.get("idTransaction")
-        if not pix_code or not tx_id:
+        charge = await criar_cobranca(plan["price"], f"VIP Picks - {plan_key}")
+        pix_code = charge.get("pix_code")
+        identifier = charge.get("identifier")
+        if not pix_code or not identifier:
             await context.bot.send_message(chat_id=user_id, text="❌ Erro ao gerar cobrança. Digite /start e tente novamente.")
             return
-        pending[user_id] = {"tx_id": tx_id, "days": plan["days"], "nome": nome}
+        pending[user_id] = {"identifier": identifier, "days": plan["days"], "nome": nome}
         btn = [[InlineKeyboardButton("✅ Clique para ver o status do pagamento", callback_data="verificar")]]
         await context.bot.send_message(chat_id=user_id, text="Para pagar via Pix Copia e Cola: toque no código abaixo para copiá-lo, abra seu app do banco, escolha 'Pix Copia e Cola' e cole o conteúdo.")
         await context.bot.send_message(chat_id=user_id, text=pix_code)
@@ -84,9 +108,9 @@ async def verificar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Nenhum pagamento encontrado. Use /start para recomeçar.")
         return
     try:
-        data = await verificar_pagamento(pay["tx_id"])
-        status = data.get("status_transaction", "")
-        if status in ("PAID", "APPROVED", "COMPLETED", "paid", "approved"):
+        data = await verificar_pagamento(pay["identifier"])
+        status = str(data.get("status", "")).upper()
+        if status in ("PAID", "APPROVED", "COMPLETED", "CONFIRMED", "SUCCESS"):
             expire = datetime.now() + timedelta(days=pay["days"])
             invite = await context.bot.create_chat_invite_link(chat_id=CHANNEL_ID, expire_date=expire, member_limit=1)
             await context.bot.send_message(chat_id=user_id, text=f"Seu pedido foi pago com sucesso! {pay['nome']}")
