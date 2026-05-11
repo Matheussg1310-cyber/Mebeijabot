@@ -9,7 +9,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 SYNCPAY_CLIENT_ID = os.environ.get("SYNCPAY_CLIENT_ID", "")
 SYNCPAY_CLIENT_SECRET = os.environ.get("SYNCPAY_CLIENT_SECRET", "")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
-SYNCPAY_URL = "https://api.syncpayments.com.br"
+SYNCPAY_URL = "https://api.syncpay.pro"
 
 PLANS = {
     "mensal": {"label": "📅 PLANO MENSAL — R$ 29,90", "price": 29.90, "days": 30},
@@ -141,3 +141,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
