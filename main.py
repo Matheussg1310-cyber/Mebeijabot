@@ -88,8 +88,9 @@ async def selecionar_plano(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pix_code = charge.get("pix_code")
         identifier = charge.get("identifier")
         if not pix_code or not identifier:
-            await context.bot.send_message(chat_id=user_id, text="❌ Erro ao gerar cobrança. Digite /start e tente novamente.")
-            return
+    await context.bot.send_message(chat_id=user_id, text=f"❌ Resposta da API: {charge}")
+
+          return
         pending[user_id] = {"identifier": identifier, "days": plan["days"], "nome": nome}
         btn = [[InlineKeyboardButton("✅ Clique para ver o status do pagamento", callback_data="verificar")]]
         await context.bot.send_message(chat_id=user_id, text="Para pagar via Pix Copia e Cola: toque no código abaixo para copiá-lo, abra seu app do banco, escolha 'Pix Copia e Cola' e cole o conteúdo.")
